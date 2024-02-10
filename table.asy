@@ -49,13 +49,73 @@ struct table
         }
     };
     column[] columns;
-    void addcolumn(string name, real[] rval)
+    void operator init()
+    {
+    }
+    /* chain methods */
+    table rename(int i, string name)
+    {
+        this.columns[i].name = name;
+        return this;
+    }
+    table push(string name, real[] rval)
     {
         this.columns.push(column(name, rval));
+        return this;
     }
-    void addcolumn(string name, string[] sval)
+    table push(string name, string[] sval)
     {
         this.columns.push(column(name, sval));
+        return this;
+    }
+    table append(table other)
+    {
+        for (column c : other.columns)
+            if (0 < c.rval.length)
+                this.push(c.name, c.rval[:]);
+            else if (0 < c.sval.length)
+                this.push(c.name, c.sval[:]);
+        return this;
+    }
+    table appendrows(table other)
+    {
+        for (int j = 0; this.columns.length > j; ++j)
+        {
+            this.columns[j].rval.append(other.columns[j].rval);
+            this.columns[j].sval.append(other.columns[j].sval);
+        }
+        return this;
+    }
+    /* new instance methods */
+    table copy()
+    {
+        table t = table();
+        for (column c : this.columns)
+            if (0 < c.rval.length)
+                t.push(c.name, c.rval[:]);
+            else if (0 < c.sval.length)
+                t.push(c.name, c.sval[:]);
+        return t;
+    }
+    table slice(int i, int j)
+    {
+        table t = table();
+        for (column c : this.columns[i:j])
+            if (0 < c.rval.length)
+                t.push(c.name, c.rval[:]);
+            else if (0 < c.sval.length)
+                t.push(c.name, c.sval[:]);
+        return t;
+    }
+    table slicerows(int i, int j)
+    {
+        table t = table();
+        for (column c : this.columns)
+            if (0 < c.rval.length)
+                t.push(c.name, c.rval[i:j]);
+            else if (0 < c.sval.length)
+                t.push(c.name, c.sval[i:j]);
+        return t;
     }
 };
 
@@ -84,8 +144,10 @@ void draw(
     real[] colwidths={ 1.0 },
     real colmargin=0,
     pen p=currentpen,
+    pen fillpen=nullpen,
     pen[] colfillpens={},
     pen[] rowfillpens={},
+    bool header=true,
     string borders="NNEWS",
     pair align=(0, 0))
 {
@@ -94,7 +156,8 @@ void draw(
         return;
 
     int nrows = table.columns[0].rval.length + table.columns[0].sval.length;
-    int trows = nrows + ("" == name ? 1 : 2);
+    int hrows = header ? 1 : 0;
+    int trows = nrows + hrows + ("" != name ? 1 : 0);
 
     real[] colwid = new real[ncols];
     for (int j = 0; ncols > j; ++j)
@@ -111,6 +174,9 @@ void draw(
         scale(unitsize.x, unitsize.y) *
         shift((sgn(align.x) - 1) * colpos[ncols] / 2, (sgn(align.y) - 1) * trows / 2);
 
+    if (nullpen != fillpen)
+        fill(pic, t * box((0, 0), (colpos[ncols], trows)), fillpen);
+
     for (int j = 0; ncols > j && colfillpens.length > j; ++j)
         if (nullpen != colfillpens[j])
             fill(pic, t * box((colpos[j], 0), (colpos[j] + colwid[j], nrows)), colfillpens[j]);
@@ -119,30 +185,33 @@ void draw(
             fill(pic, t * box((0, nrows - i - 1), (colpos[ncols], nrows - i)), rowfillpens[i]);
 
     if (0 <= find(borders, "NN"))
-        draw(pic, t * ((0, nrows + 1) -- (colpos[ncols], nrows + 1)), p=p);
+        draw(pic, t * ((0, nrows + hrows) -- (colpos[ncols], nrows + hrows)), p=p);
     if (0 <= find(borders, "N"))
         draw(pic, t * ((0, nrows) -- (colpos[ncols], nrows)), p=p);
     if (0 <= find(borders, "E"))
-        draw(pic, t * ((colpos[ncols], 0) -- (colpos[ncols], nrows + 1)), p=p);
+        draw(pic, t * ((colpos[ncols], 0) -- (colpos[ncols], nrows + hrows)), p=p);
     if (0 <= find(borders, "W"))
-        draw(pic, t * ((0, 0) -- (0, nrows + 1)), p=p);
+        draw(pic, t * ((0, 0) -- (0, nrows + hrows)), p=p);
     if (0 <= find(borders, "S"))
         draw(pic, t * ((0, 0) -- (colpos[ncols], 0)), p=p);
 
     if ("" != name)
     {
-        label(pic, name, t * (colpos[ncols] / 2, nrows + 1), p=p, align=N);
-        dbgdot(pic, t * (colpos[ncols] / 2, nrows + 1), blue);
+        label(pic, name, t * (colpos[ncols] / 2, nrows + hrows), p=p, align=N);
+        dbgdot(pic, t * (colpos[ncols] / 2, nrows + hrows), blue);
     }
 
     for (int j = 0; ncols > j; ++j)
         if (0 < table.columns[j].rval.length)
         {
-            label(pic,
-                table.columns[j].name,
-                t * (colpos[j] + colwid[j], nrows),
-                p=p, align=NW);
-            dbgdot(pic, t * (colpos[j] + colwid[j], nrows), green);
+            if (header)
+            {
+                label(pic,
+                    table.columns[j].name,
+                    t * (colpos[j] + colwid[j], nrows),
+                    p=p, align=NW);
+                dbgdot(pic, t * (colpos[j] + colwid[j], nrows), green);
+            }
             for (int i = 0; nrows > i; ++i)
             {
                 real rval = table.columns[j].rval.length > i ?
@@ -156,11 +225,14 @@ void draw(
         }
         else if (0 < table.columns[j].sval.length)
         {
-            label(pic,
-                table.columns[j].name,
-                t * (colpos[j], nrows),
-                p=p, align=NE);
-            dbgdot(pic, t * (colpos[j], nrows), blue);
+            if (header)
+            {
+                label(pic,
+                    table.columns[j].name,
+                    t * (colpos[j], nrows),
+                    p=p, align=NE);
+                dbgdot(pic, t * (colpos[j], nrows), blue);
+            }
             for (int i = 0; nrows > i; ++i)
             {
                 string sval = table.columns[j].sval.length > i ?
@@ -185,18 +257,20 @@ void draw(
     real[] colwidths={ 1.0 },
     real colmargin=0,
     pen p=currentpen,
+    pen fillpen=nullpen,
     pen[] colfillpens={},
     pen[] rowfillpens={},
+    bool header=true,
     string borders="NNEWS",
-    pair align=(0, 0),
-    pen fillpen=nullpen)
+    pair align=(0, 0))
 {
     int ncols = table.columns.length;
     if (0 == ncols)
         return;
 
     int nrows = table.columns[0].rval.length + table.columns[0].sval.length;
-    int trows = nrows + ("" == name ? 1 : 2);
+    int hrows = header ? 1 : 0;
+    int trows = nrows + hrows + ("" != name ? 1 : 0);
 
     real[] colwid = new real[ncols];
     for (int j = 0; ncols > j; ++j)
@@ -214,40 +288,43 @@ void draw(
         shift((sgn(align.x) - 1) * colpos[ncols] / 2, (sgn(align.y) - 1) * trows / 2, 0);
 
     if (nullpen != fillpen)
-        draw(surface(shift(0, 0, -0.0003) * t * path3(box((0, 0), (colpos[ncols], nrows + 2)))), fillpen, nolight);
+        draw(pic, surface(shift(0, 0, -0.0003) * t * path3(box((0, 0), (colpos[ncols], trows)))), fillpen, nolight);
 
     for (int j = 0; ncols > j && colfillpens.length > j; ++j)
         if (nullpen != colfillpens[j])
-            draw(surface(shift(0, 0, -0.0002) * t * path3(box((colpos[j], 0), (colpos[j] + colwid[j], nrows)))), colfillpens[j], nolight);
+            draw(pic, surface(shift(0, 0, -0.0002) * t * path3(box((colpos[j], 0), (colpos[j] + colwid[j], nrows)))), colfillpens[j], nolight);
     for (int i = 0; nrows > i && rowfillpens.length > i; ++i)
         if (nullpen != rowfillpens[i])
-            draw(surface(shift(0, 0, -0.0001) * t * path3(box((0, nrows - i - 1), (colpos[ncols], nrows - i)))), rowfillpens[i], nolight);
+            draw(pic, surface(shift(0, 0, -0.0001) * t * path3(box((0, nrows - i - 1), (colpos[ncols], nrows - i)))), rowfillpens[i], nolight);
 
     if (0 <= find(borders, "NN"))
-        draw(pic, t * ((0, nrows + 1, 0) -- (colpos[ncols], nrows + 1, 0)), p=p);
+        draw(pic, t * ((0, nrows + hrows, 0) -- (colpos[ncols], nrows + hrows, 0)), p=p);
     if (0 <= find(borders, "N"))
         draw(pic, t * ((0, nrows, 0) -- (colpos[ncols], nrows, 0)), p=p);
     if (0 <= find(borders, "E"))
-        draw(pic, t * ((colpos[ncols], 0, 0) -- (colpos[ncols], nrows + 1, 0)), p=p);
+        draw(pic, t * ((colpos[ncols], 0, 0) -- (colpos[ncols], nrows + hrows, 0)), p=p);
     if (0 <= find(borders, "W"))
-        draw(pic, t * ((0, 0, 0) -- (0, nrows + 1, 0)), p=p);
+        draw(pic, t * ((0, 0, 0) -- (0, nrows + hrows, 0)), p=p);
     if (0 <= find(borders, "S"))
         draw(pic, t * ((0, 0, 0) -- (colpos[ncols], 0, 0)), p=p);
 
     if ("" != name)
     {
-        label(pic, XY * name, t * (colpos[ncols] / 2, nrows + 1, 0), p=p, align=N);
-        dbgdot(pic, t * (colpos[ncols] / 2, nrows + 1, 0), blue);
+        label(pic, XY * name, t * (colpos[ncols] / 2, nrows + hrows, 0), p=p, align=N);
+        dbgdot(pic, t * (colpos[ncols] / 2, nrows + hrows, 0), blue);
     }
 
     for (int j = 0; ncols > j; ++j)
         if (0 < table.columns[j].rval.length)
         {
-            label(pic,
-                XY * table.columns[j].name,
-                t * (colpos[j] + colwid[j], nrows, 0),
-                p=p, align=NW, interaction=Embedded);
-            dbgdot(pic, t * (colpos[j] + colwid[j], nrows, 0), green);
+            if (header)
+            {
+                label(pic,
+                    XY * table.columns[j].name,
+                    t * (colpos[j] + colwid[j], nrows, 0),
+                    p=p, align=NW, interaction=Embedded);
+                dbgdot(pic, t * (colpos[j] + colwid[j], nrows, 0), green);
+            }
             for (int i = 0; nrows > i; ++i)
             {
                 real rval = table.columns[j].rval.length > i ?
@@ -261,11 +338,14 @@ void draw(
         }
         else if (0 < table.columns[j].sval.length)
         {
-            label(pic,
-                XY * table.columns[j].name,
-                t * (colpos[j], nrows, 0),
-                p=p, align=NE, interaction=Embedded);
-            dbgdot(pic, t * (colpos[j], nrows, 0), blue);
+            if (header)
+            {
+                label(pic,
+                    XY * table.columns[j].name,
+                    t * (colpos[j], nrows, 0),
+                    p=p, align=NE, interaction=Embedded);
+                dbgdot(pic, t * (colpos[j], nrows, 0), blue);
+            }
             for (int i = 0; nrows > i; ++i)
             {
                 string sval = table.columns[j].sval.length > i ?
@@ -289,16 +369,17 @@ if (false)
     // 2D test
 
     table t;
-    t.addcolumn("$P$", new real[] { 188.63, 191.56, 193.89, 195.18, 194.5, 194.17, 192.42, 191.73, 188.04, 184.4 });
-    t.addcolumn("$V$", new real[] { 77.92, 68.74, 60.1, 42.3, 53.58, 54.73, 44.55, 47.04, 55.75, 55.4 });
-    t.addcolumn("$S$", new real[] { 0.23, 0.43, 0.17, 0.35, 0.48, 0.11, -0.02, 0.05, 0.19, 0.09 });
-    t.addcolumn("$str$", new string[] { "foo", "bar" });
+    t.push("$P$", new real[] { 188.63, 191.56, 193.89, 195.18, 194.5, 194.17, 192.42, 191.73, 188.04, 184.4 });
+    t.push("$V$", new real[] { 77.92, 68.74, 60.1, 42.3, 53.58, 54.73, 44.55, 47.04, 55.75, 55.4 });
+    t.push("$S$", new real[] { 0.23, 0.43, 0.17, 0.35, 0.48, 0.11, -0.02, 0.05, 0.19, 0.09 });
+    t.push("$str$", new string[] { "foo", "bar" });
 
     unitsize(1cm);
     draw(t, (0, 0),
         name="AAPL", unitsize=(1, 0.5), colwidths=new real[] { 2 }, colmargin=0.5,
         colfillpens=new pen[] { pink, palegreen, palecyan, pink },
-        rowfillpens = new pen[] { nullpen, paleblue, lightblue });
+        rowfillpens = new pen[] { nullpen, paleblue, lightblue },
+        fillpen=lightgray);
     dot((0, 0), red);
     shipout(bbox(0.25cm));
 }
@@ -307,10 +388,10 @@ else if (false)
     // 3D test
 
     table t;
-    t.addcolumn("$P$", new real[] { 188.63, 191.56, 193.89, 195.18, 194.5, 194.17, 192.42, 191.73, 188.04, 184.4 });
-    t.addcolumn("$V$", new real[] { 77.92, 68.74, 60.1, 42.3, 53.58, 54.73, 44.55, 47.04, 55.75, 55.4 });
-    t.addcolumn("$S$", new real[] { 0.23, 0.43, 0.17, 0.35, 0.48, 0.11, -0.02, 0.05, 0.19, 0.09 });
-    t.addcolumn("$str$", new string[] { "foo", "bar" });
+    t.push("$P$", new real[] { 188.63, 191.56, 193.89, 195.18, 194.5, 194.17, 192.42, 191.73, 188.04, 184.4 });
+    t.push("$V$", new real[] { 77.92, 68.74, 60.1, 42.3, 53.58, 54.73, 44.55, 47.04, 55.75, 55.4 });
+    t.push("$S$", new real[] { 0.23, 0.43, 0.17, 0.35, 0.48, 0.11, -0.02, 0.05, 0.19, 0.09 });
+    t.push("$str$", new string[] { "foo", "bar" });
 
     unitsize(1cm);
     currentprojection = orthographic((-1, 1, 1), up=Y);
